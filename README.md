@@ -7,7 +7,7 @@
 |---|---|
 | [products_sample.md](products_sample.md) | 5 ходовых штатных магнитол: марка, модель, годы, цена, характеристики, оффер |
 | [tiktok_script_template.md](tiktok_script_template.md) | Шаблон сценария ролика на 15–30 с: крючок → проблема → решение → цена → призыв |
-| [samples/](samples/) | 3 готовых сценария (Ford Focus 3, VW Jetta 6, Hyundai Accent): озвучка, надписи, текст поста |
+| Сценарии: [Ford Focus 3](samples/01_ford_focus_3.md), [VW Jetta 6](samples/02_vw_jetta_6.md), [Hyundai Accent](samples/03_hyundai_accent.md) | 3 готовых сценария: озвучка, надписи, текст поста |
 | [prompt.md](prompt.md), [first_prompt.txt](first_prompt.txt) | Промпты, по которым работал агент |
 | [setup.md](setup.md) | Система и версии инструментов |
 
