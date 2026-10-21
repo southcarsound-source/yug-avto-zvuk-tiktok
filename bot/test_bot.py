@@ -18,7 +18,9 @@ for q in ("хочу заказать", "хочу купить", "у меня с�
     a, lead = answer(q)
     assert not lead and "Не знайшов" not in a, q
 assert "оформимо" in answer("хочу заказать")[0]
-assert "розділ" in answer("Ford Focus 3 2015")[0]  # ссылка на раздел, не на товары
+focus = answer("Ford Focus 3 2015")[0]
+assert "розділ" in focus and "?sort=price" in focus  # раздел, от дешёвых к дорогим
+assert "від 7 990" not in focus  # раньше «від» считалось по 3 товарам и было завышено
 print("ok")
 for q in ("Ford Focus 3 2015", "Шкода Октавия 2012", "Toyota Camry 40", "хочу купить", "а есть в наличии",
           "Привет творожок", "Нужна магнитола", "А установка сложная? и оплата частями есть?"):

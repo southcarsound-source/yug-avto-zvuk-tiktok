@@ -125,8 +125,9 @@ def answer(text):
     sections = {}  # ссылка раздела -> (название, цена «від»)
     for p in items:
         sec = section(p["url"])
-        if sec and (sec[1] not in sections or p["price"] < sections[sec[1]][1]):
-            sections[sec[1]] = (sec[0], p["price"])
+        if sec:
+            url = sec[1] + "?sort=price"  # на сайте сразу от дешёвых к дорогим
+            sections[url] = (sec[0], min_price(url) or p["price"])
     if sections:
         lines = ["Ось розділ з магнітолами під ваше авто:\n"]
         for url, (name, price) in sections.items():
@@ -140,22 +141,44 @@ def answer(text):
 
 
 SECTIONS = {}
+PRICES = {}
+
+
+def ld_json(url):
+    """Все JSON-LD блоки страницы сайта; [] если сайт не ответил."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        html = urllib.request.urlopen(req, timeout=10).read().decode("utf-8", "ignore")
+    except Exception:
+        return []
+    out = []
+    for block in re.findall(r'<script[^>]*ld\+json[^>]*>(.*?)</script>', html, re.S):
+        try:
+            data = json.loads(block)
+        except ValueError:
+            continue
+        out += data if isinstance(data, list) else [data]
+    return out
+
+
+def min_price(section_url):
+    """Самая дешёвая штатная магнитола в наличии на странице раздела (отсортированной по цене)."""
+    if section_url not in PRICES:
+        prices = [float(x["offers"]["price"]) for x in ld_json(section_url)
+                  if x.get("@type") == "Product" and x.get("name", "").lower().startswith("штатна магнітола")
+                  and "InStock" in x.get("offers", {}).get("availability", "")]
+        PRICES[section_url] = round(min(prices)) if prices else None
+    return PRICES[section_url]
 
 
 def section(product_url):
     """(название, ссылка) раздела модели авто — из хлебных крошек страницы товара; None, если сайт не ответил."""
     if product_url not in SECTIONS:
-        try:
-            req = urllib.request.Request(product_url, headers={"User-Agent": "Mozilla/5.0"})
-            html = urllib.request.urlopen(req, timeout=10).read().decode("utf-8", "ignore")
-        except Exception:
-            return None
+        blocks = ld_json(product_url)
+        if not blocks:
+            return None  # не кэшируем: сайт мог просто не ответить
         SECTIONS[product_url] = None
-        for block in re.findall(r'<script[^>]*ld\+json[^>]*>(.*?)</script>', html, re.S):
-            try:
-                data = json.loads(block)
-            except ValueError:
-                continue
+        for data in blocks:
             if isinstance(data, dict) and data.get("@type") == "BreadcrumbList":
                 crumbs = [i["item"] for i in data["itemListElement"]]
                 if len(crumbs) >= 2 and "/g" in crumbs[-2]["@id"]:
