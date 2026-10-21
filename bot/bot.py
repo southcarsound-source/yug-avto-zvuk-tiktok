@@ -247,6 +247,12 @@ def main():
     db = DB(cfg.get("DATABASE_URL"))
     offset = 0
     print("Бот запущено")
+    if owner:  # владелец видит каждый перезапуск и что база на месте
+        try:
+            api(token, "sendMessage", chat_id=owner,
+                text=f"🔄 Бот перезапущено {time.strftime('%d.%m %H:%M:%S')} (процес {os.getpid()}).\n{db.stats()}")
+        except Exception as e:
+            print("Не вдалося повідомити власника:", e)
     while True:
         try:
             updates = api(token, "getUpdates", offset=offset, timeout=50)
