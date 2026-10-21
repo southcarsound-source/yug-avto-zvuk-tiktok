@@ -3,10 +3,11 @@
 Каталог (catalog.json) — штатные магнитолы в наличии из каталога Prom (south-car-sound.com.ua).
 shortcut: потом перевести ссылки на shtatni-magnitoly.com.ua, когда будет выгрузка нового сайта.
 
-Запуск:  python bot.py   (токен и чат владельца — в bot/.env: BOT_TOKEN=..., OWNER_CHAT_ID=...)
-Без библиотек: только стандартный Python, long polling.
+Запуск:  python bot.py   (BOT_TOKEN, OWNER_CHAT_ID, DATABASE_URL — в bot/.env или в переменных окружения)
+Переписка и заявки хранятся в Postgres (Railway), владелец смотрит их командами /leads и /stats.
 """
 import json
+import os
 import re
 import time
 import urllib.parse
@@ -72,12 +73,59 @@ GREET = ("привіт", "привет", "вітаю", "добр", "здравс
 
 
 def env():
+    """Настройки из bot/.env (локально) и переменных окружения (Railway)."""
     vals = {}
-    for line in (HERE / ".env").read_text(encoding="utf-8").splitlines():
-        if "=" in line and not line.startswith("#"):
-            k, v = line.split("=", 1)
-            vals[k.strip()] = v.strip()
+    if (HERE / ".env").exists():
+        for line in (HERE / ".env").read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                vals[k.strip()] = v.strip()
+    vals.update({k: os.environ[k] for k in ("BOT_TOKEN", "OWNER_CHAT_ID", "DATABASE_URL") if os.environ.get(k)})
     return vals
+
+
+class DB:
+    """Переписка и заявки в Postgres (DATABASE_URL). Без базы бот работает, просто ничего не хранит."""
+
+    def __init__(self, url):
+        self.url, self.conn = url, None
+
+    def run(self, sql, args=()):
+        if not self.url:
+            return []
+        for attempt in (1, 2):  # соединение с базой могло оборваться — переподключаемся один раз
+            try:
+                if self.conn is None:
+                    import psycopg  # нужен только с базой
+                    self.conn = psycopg.connect(self.url, autocommit=True)
+                    self.conn.execute(
+                        "create table if not exists messages (id serial primary key, chat_id bigint, username text,"
+                        " text text, reply text, is_lead boolean, created_at timestamptz default now())")
+                cur = self.conn.execute(sql, args)
+                return cur.fetchall() if cur.description else []
+            except Exception as e:
+                print("Помилка бази:", e)
+                self.conn = None
+        return []
+
+    def save(self, chat, username, text, reply, is_lead):
+        self.run("insert into messages (chat_id, username, text, reply, is_lead) values (%s, %s, %s, %s, %s)",
+                 (chat, username, text, reply, is_lead))
+
+    def leads(self, limit=10):
+        rows = self.run("select created_at, username, chat_id, text from messages where is_lead"
+                        " order by id desc limit %s", (limit,))
+        if not rows:
+            return "Заявок у базі поки немає."
+        return "📥 Останні заявки з бази:\n\n" + "\n\n".join(
+            f"{t:%d.%m %H:%M} UTC · @{u or '—'} (id {c})\n{x}" for t, u, c, x in rows)
+
+    def stats(self):
+        rows = self.run("select count(*), count(*) filter (where is_lead), count(distinct chat_id) from messages")
+        if not rows:
+            return "База не підключена."
+        total, leads, people = rows[0]
+        return f"📊 У базі: {total} повідомлень, {leads} заявок, {people} людей."
 
 
 def search(text, limit=3):
@@ -196,6 +244,7 @@ def api(token, method, **params):
 def main():
     cfg = env()
     token, owner = cfg["BOT_TOKEN"], cfg.get("OWNER_CHAT_ID")
+    db = DB(cfg.get("DATABASE_URL"))
     offset = 0
     print("Бот запущено")
     while True:
@@ -211,11 +260,15 @@ def main():
             if not msg or "text" not in msg:
                 continue
             text, chat = msg["text"], msg["chat"]["id"]
-            reply, is_lead = answer(text)
+            who = msg["from"].get("username") or msg["from"].get("first_name", "")
+            if str(chat) == owner and text in ("/leads", "/stats"):  # команды владельца — данные из базы
+                reply, is_lead = (db.leads() if text == "/leads" else db.stats()), False
+            else:
+                reply, is_lead = answer(text)
+                db.save(chat, who, text, reply, is_lead)
             try:
                 api(token, "sendMessage", chat_id=chat, text=reply, disable_web_page_preview="true")
                 if is_lead and owner and str(chat) != owner:
-                    who = msg["from"].get("username") or msg["from"].get("first_name", "")
                     api(token, "sendMessage", chat_id=owner, text=f"📥 Заявка з бота від @{who} (id {chat}):\n{text}")
             except Exception as e:
                 print("Не вдалося відповісти:", e)
