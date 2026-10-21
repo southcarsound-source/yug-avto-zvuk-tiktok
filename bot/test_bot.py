@@ -21,6 +21,10 @@ assert "оформимо" in answer("хочу заказать")[0]
 focus = answer("Ford Focus 3 2015")[0]
 assert "розділ" in focus and "?sort=price" in focus  # раздел, от дешёвых к дорогим
 assert "від 7 990" not in focus  # раньше «від» считалось по 3 товарам и было завышено
+from bot import source_of
+assert source_of("/start tiktok_3112400497") == "tiktok_3112400497" and source_of("/start") is None
+assert answer("/start ig_story")[0].startswith("Привіт")
+assert answer("Номер: +380671234567")[1] is True
 print("ok")
 for q in ("Ford Focus 3 2015", "Шкода Октавия 2012", "Toyota Camry 40", "хочу купить", "а есть в наличии",
           "Привет творожок", "Нужна магнитола", "А установка сложная? и оплата частями есть?"):

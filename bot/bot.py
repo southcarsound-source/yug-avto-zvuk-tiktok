@@ -157,7 +157,7 @@ def answer(text):
     """Ответ бота на текст клиента; второй элемент — нужно ли переслать владельцу как заявку."""
     if text.startswith("/start") or text.startswith("/help"):
         return HELLO, False
-    if PHONE.search(re.sub(r"[\s()-]", "", text)):
+    if text.startswith("Номер: ") or PHONE.search(re.sub(r"[\s()-]", "", text)):
         return "Дякуємо! Наш менеджер передзвонить вам найближчим часом 📞", True
     items = search(text)
     if not items:
@@ -235,6 +235,17 @@ def section(product_url):
     return SECTIONS[product_url]
 
 
+PHONE_BUTTON = json.dumps({"keyboard": [[{"text": "📞 Залишити номер — менеджер передзвонить", "request_contact": True}]],
+                           "resize_keyboard": True, "one_time_keyboard": True})
+SOURCES = {}  # chat_id -> откуда пришёл (метка из ссылки t.me/бот?start=<метка>), для заявки владельцу
+
+
+def source_of(text):
+    """Метка из deep-link: «/start tiktok_3112400497» → «tiktok_3112400497»."""
+    parts = text.split(maxsplit=1)
+    return parts[1].strip()[:64] if text.startswith("/start") and len(parts) > 1 else None
+
+
 def api(token, method, **params):
     data = urllib.parse.urlencode(params).encode()
     with urllib.request.urlopen(f"https://api.telegram.org/bot{token}/{method}", data, timeout=70) as r:
@@ -263,9 +274,13 @@ def main():
         for u in updates:
             offset = u["update_id"] + 1
             msg = u.get("message")
-            if not msg or "text" not in msg:
+            if not msg or ("text" not in msg and "contact" not in msg):
                 continue
-            text, chat = msg["text"], msg["chat"]["id"]
+            chat = msg["chat"]["id"]
+            # кнопка «Залишити номер» присылает контакт, а не текст — это тоже заявка
+            text = f"Номер: {msg['contact']['phone_number']}" if "contact" in msg else msg["text"]
+            if source_of(text):
+                SOURCES[chat] = source_of(text)
             who = msg["from"].get("username") or msg["from"].get("first_name", "")
             if str(chat) == owner and text in ("/leads", "/stats"):  # команды владельца — данные из базы
                 reply, is_lead = (db.leads() if text == "/leads" else db.stats()), False
@@ -273,9 +288,11 @@ def main():
                 reply, is_lead = answer(text)
                 db.save(chat, who, text, reply, is_lead)
             try:
-                api(token, "sendMessage", chat_id=chat, text=reply, disable_web_page_preview="true")
+                keyboard = json.dumps({"remove_keyboard": True}) if is_lead else PHONE_BUTTON
+                api(token, "sendMessage", chat_id=chat, text=reply, disable_web_page_preview="true", reply_markup=keyboard)
                 if is_lead and owner and str(chat) != owner:
-                    api(token, "sendMessage", chat_id=owner, text=f"📥 Заявка з бота від @{who} (id {chat}):\n{text}")
+                    src = f" · джерело: {SOURCES[chat]}" if chat in SOURCES else ""
+                    api(token, "sendMessage", chat_id=owner, text=f"📥 Заявка з бота від @{who} (id {chat}){src}:\n{text}")
             except Exception as e:
                 print("Не вдалося відповісти:", e)
 
